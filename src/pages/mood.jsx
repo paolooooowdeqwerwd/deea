@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { base44 } from "@/api/base44Client"
+import { appParams } from "@/lib/app-params"
 import { isLoggedIn } from "@/lib/auth"
 import { Heart, Send } from "lucide-react"
 
@@ -16,6 +17,23 @@ const MOODS = [
   { label: "Normale", emoji: "😐", color: "from-gray-400 to-slate-500" },
 ]
 
+const LOCAL_MOOD_MESSAGES_KEY = "deea_mood_messages"
+
+function getLocalMoodMessages() {
+  try {
+    const raw = localStorage.getItem(LOCAL_MOOD_MESSAGES_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function saveLocalMoodMessage(record) {
+  const prev = getLocalMoodMessages()
+  localStorage.setItem(LOCAL_MOOD_MESSAGES_KEY, JSON.stringify([record, ...prev]))
+}
+
 export default function Mood() {
   const navigate = useNavigate()
   const [selectedMood, setSelectedMood] = useState(null)
@@ -30,22 +48,80 @@ export default function Mood() {
   async function handleSend() {
     if (!selectedMood && !message.trim()) return
     setSending(true)
+    const sentAt = new Date().toISOString()
+    const moodEmoji = selectedMood ? selectedMood.emoji : "💬"
+    const moodLabel = selectedMood ? selectedMood.label : "Messaggio"
+    const trimmedMessage = message.trim()
+    if (!appParams.appId) {
+      try {
+        const localId =
+          typeof crypto !== "undefined" && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `${Date.now()}_${Math.random().toString(16).slice(2)}`
+        saveLocalMoodMessage({
+          id: localId,
+          mood_emoji: moodEmoji,
+          mood_label: moodLabel,
+          message: trimmedMessage,
+          sent_at: sentAt,
+          created_date: sentAt,
+        })
+        window.alert("Hai inviato tutto con successo.")
+        setSent(true)
+        setTimeout(() => {
+          setSent(false)
+          setSelectedMood(null)
+          setMessage("")
+        }, 3000)
+      } catch {
+        window.alert("Non sono riuscito a inviare. Riprova.")
+      }
+      setSending(false)
+      return
+    }
+    let didSend = false
     try {
       await base44.entities.MoodMessage.create({
-        mood_emoji: selectedMood ? selectedMood.emoji : "💬",
-        mood_label: selectedMood ? selectedMood.label : "Messaggio",
-        message: message.trim(),
-        sent_at: new Date().toISOString(),
+        mood_emoji: moodEmoji,
+        mood_label: moodLabel,
+        message: trimmedMessage,
+        sent_at: sentAt,
       })
+      didSend = true
+    } catch (e) {
+      try {
+        const localId =
+          typeof crypto !== "undefined" && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `${Date.now()}_${Math.random().toString(16).slice(2)}`
+        saveLocalMoodMessage({
+          id: localId,
+          mood_emoji: moodEmoji,
+          mood_label: moodLabel,
+          message: trimmedMessage,
+          sent_at: sentAt,
+          created_date: sentAt,
+        })
+        didSend = true
+      } catch (innerError) {
+        window.alert("Non sono riuscito a inviare. Riprova.")
+        setSending(false)
+        return
+      }
+    }
+
+    if (didSend) {
+      window.alert("Hai inviato tutto con successo.")
       setSent(true)
       setTimeout(() => {
         setSent(false)
         setSelectedMood(null)
         setMessage("")
       }, 3000)
-    } catch (e) {}
+    }
     setSending(false)
   }
+
 
   return (
     <div className="flex flex-col items-center px-6 pb-12">

@@ -1,10 +1,27 @@
 import React, { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { base44 } from "@/api/base44Client"
+import { appParams } from "@/lib/app-params"
 import { adminLogout, isAdminLoggedIn } from "@/lib/auth"
 import { Heart, LogOut, MessageSquare, RefreshCw, Shield, Trash2 } from "lucide-react"
 import { format, parseISO } from "date-fns"
 import { it } from "date-fns/locale"
+
+const LOCAL_MOOD_MESSAGES_KEY = "deea_mood_messages"
+
+function getLocalMoodMessages() {
+  try {
+    const raw = localStorage.getItem(LOCAL_MOOD_MESSAGES_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function setLocalMoodMessages(records) {
+  localStorage.setItem(LOCAL_MOOD_MESSAGES_KEY, JSON.stringify(records))
+}
 
 const MOOD_COLORS = {
   Vogliosa: "bg-orange-100 text-orange-700 border-orange-200",
@@ -35,19 +52,37 @@ export default function Admin() {
 
   async function loadMessages() {
     setLoading(true)
+    if (!appParams.appId) {
+      setMessages(getLocalMoodMessages())
+      setLoading(false)
+      return
+    }
     try {
       const data = await base44.entities.MoodMessage.list("-sent_at")
       setMessages(data || [])
-    } catch (e) {}
+    } catch (e) {
+      setMessages(getLocalMoodMessages())
+    }
     setLoading(false)
   }
 
   async function deleteMessage(id) {
     setDeleting(id)
+    if (!appParams.appId) {
+      const next = getLocalMoodMessages().filter((m) => m.id !== id)
+      setLocalMoodMessages(next)
+      setMessages(next)
+      setDeleting(null)
+      return
+    }
     try {
       await base44.entities.MoodMessage.delete(id)
       setMessages((prev) => prev.filter((m) => m.id !== id))
-    } catch (e) {}
+    } catch (e) {
+      const next = getLocalMoodMessages().filter((m) => m.id !== id)
+      setLocalMoodMessages(next)
+      setMessages(next)
+    }
     setDeleting(null)
   }
 

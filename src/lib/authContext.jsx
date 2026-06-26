@@ -23,8 +23,16 @@ export const AuthProvider = ({ children }) => {
       setIsLoadingPublicSettings(true)
       setAuthError(null)
 
+      if (!appParams.appId) {
+        setIsLoadingPublicSettings(false)
+        setIsLoadingAuth(false)
+        setIsAuthenticated(false)
+        setAuthChecked(true)
+        return
+      }
+
       const appClient = createAxiosClient({
-        baseURL: `/api/apps/public`,
+        baseURL: `https://base44.app/api/apps/public`,
         headers: {
           "X-App-Id": appParams.appId
         },
