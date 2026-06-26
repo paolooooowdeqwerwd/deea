@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { base44 } from "@/api/base44Client"
 import { appParams } from "@/lib/app-params"
@@ -41,29 +41,66 @@ export default function Admin() {
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(null)
+  const [notificationPermission, setNotificationPermission] = useState(() =>
+    typeof Notification === "undefined" ? "unsupported" : Notification.permission
+  )
+  const lastSeenMessageIdRef = useRef(null)
 
   useEffect(() => {
     if (!isAdminLoggedIn()) {
       navigate("/admin-login")
       return
     }
-    loadMessages()
+    refreshMessages({ showLoading: true, notify: false })
   }, [])
 
-  async function loadMessages() {
-    setLoading(true)
-    if (!appParams.appId) {
-      setMessages(getLocalMoodMessages())
-      setLoading(false)
-      return
-    }
+  useEffect(() => {
+    if (!isAdminLoggedIn()) return
+    const interval = window.setInterval(() => {
+      refreshMessages({ showLoading: false, notify: true })
+    }, 6000)
+    return () => window.clearInterval(interval)
+  }, [])
+
+  async function fetchMessages() {
+    if (!appParams.appId) return getLocalMoodMessages()
     try {
       const data = await base44.entities.MoodMessage.list("-sent_at")
-      setMessages(data || [])
+      return data || []
     } catch (e) {
-      setMessages(getLocalMoodMessages())
+      return getLocalMoodMessages()
     }
-    setLoading(false)
+  }
+
+  async function refreshMessages({ showLoading, notify }) {
+    if (showLoading) setLoading(true)
+    const next = await fetchMessages()
+
+    if (notify) {
+      const latest = next?.[0]
+      if (latest?.id) {
+        const prevLastSeen = lastSeenMessageIdRef.current
+        if (prevLastSeen && prevLastSeen !== latest.id) {
+          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+            const title = "Nuova richiesta ricevuta"
+            const body = latest.message?.trim()
+              ? `${latest.mood_emoji ?? ""} ${latest.mood_label ?? ""} — ${latest.message.trim()}`
+              : `${latest.mood_emoji ?? ""} ${latest.mood_label ?? ""}`.trim()
+            const n = new Notification(title, { body })
+            n.onclick = () => {
+              window.focus()
+            }
+          }
+        }
+        lastSeenMessageIdRef.current = latest.id
+      }
+    } else {
+      const latest = next?.[0]
+      if (latest?.id) lastSeenMessageIdRef.current = latest.id
+    }
+
+    setMessages(next)
+    if (showLoading) setLoading(false)
   }
 
   async function deleteMessage(id) {
@@ -91,6 +128,15 @@ export default function Admin() {
     navigate("/admin-login")
   }
 
+  async function requestNotifications() {
+    if (typeof Notification === "undefined") {
+      setNotificationPermission("unsupported")
+      return
+    }
+    const result = await Notification.requestPermission()
+    setNotificationPermission(result)
+  }
+
   function formatDate(dateStr) {
     try {
       return format(parseISO(dateStr), "d MMMM yyyy 'alle' HH:mm", { locale: it })
@@ -115,7 +161,7 @@ export default function Admin() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={loadMessages}
+            onClick={() => refreshMessages({ showLoading: true, notify: false })}
             className="p-2 rounded-xl bg-white/80 border border-pink-100 text-pink-500 hover:bg-pink-50 transition-all shadow-sm"
             type="button"
           >
@@ -132,6 +178,23 @@ export default function Admin() {
       </div>
 
       <div className="w-full max-w-2xl flex flex-col gap-4">
+        {notificationPermission !== "unsupported" && notificationPermission !== "granted" && (
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow border border-pink-100 p-4 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-body text-pink-700 text-sm font-semibold">Notifiche</p>
+              <p className="font-body text-pink-400 text-xs">
+                Abilita le notifiche per sapere quando arriva una nuova richiesta.
+              </p>
+            </div>
+            <button
+              onClick={requestNotifications}
+              className="flex-shrink-0 px-3 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 text-white font-body text-xs font-semibold shadow hover:scale-[1.02] active:scale-[0.98] transition-all"
+              type="button"
+            >
+              Abilita
+            </button>
+          </div>
+        )}
         {latestMood && (
           <div className="bg-gradient-to-r from-pink-500 to-rose-500 rounded-3xl shadow-xl p-5 text-white">
             <p className="font-body text-pink-100 text-xs mb-1 uppercase tracking-wider">
