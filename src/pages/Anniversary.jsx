@@ -1,30 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
-import { appParams } from "@/lib/app-params";
+import { cloudClearRelationshipDate, cloudGetRelationshipDate, cloudSetRelationshipDate } from "@/api/cloudClient";
 import { isLoggedIn } from "@/lib/auth";
 import { Heart } from "lucide-react";
 import { differenceInDays, differenceInWeeks, differenceInMonths, differenceInYears, format, parseISO } from "date-fns";
 import { it } from "date-fns/locale";
-
-const LOCAL_RELATIONSHIP_DATE_KEY = "deea_relationship_date"
-
-function getLocalRelationshipDate() {
-  try {
-    const raw = localStorage.getItem(LOCAL_RELATIONSHIP_DATE_KEY)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
-}
-
-function setLocalRelationshipDate(record) {
-  localStorage.setItem(LOCAL_RELATIONSHIP_DATE_KEY, JSON.stringify(record))
-}
-
-function clearLocalRelationshipDate() {
-  localStorage.removeItem(LOCAL_RELATIONSHIP_DATE_KEY)
-}
 
 export default function Anniversary() {
   const navigate = useNavigate();
@@ -51,36 +31,18 @@ export default function Anniversary() {
 
   async function loadDate() {
     setLoading(true);
-    if (!appParams.appId) {
-      const local = getLocalRelationshipDate()
-      if (local?.start_date) {
-        setRelationshipDate(local)
-        setEditing(false)
-      } else {
-        setRelationshipDate(null)
-        setEditing(true)
-      }
-      setLoading(false)
-      return
-    }
     try {
-      const records = await base44.entities.RelationshipDate.list();
-      if (records && records.length > 0) {
-        setRelationshipDate(records[0]);
+      const data = await cloudGetRelationshipDate()
+      if (data?.start_date) {
+        setRelationshipDate({ id: "cloud", start_date: data.start_date })
         setEditing(false);
       } else {
         setRelationshipDate(null);
         setEditing(true);
       }
     } catch (e) {
-      const local = getLocalRelationshipDate()
-      if (local?.start_date) {
-        setRelationshipDate(local)
-        setEditing(false)
-      } else {
-        setRelationshipDate(null)
-        setEditing(true)
-      }
+      setRelationshipDate(null)
+      setEditing(true)
     }
     setLoading(false);
   }
@@ -92,25 +54,8 @@ export default function Anniversary() {
     const m = String(month).padStart(2, "0");
     const dateStr = `${year}-${m}-${d}`;
     setSaving(true);
-    if (!appParams.appId) {
-      const localRecord = { id: "local", start_date: dateStr, set_by: "andreea" }
-      setLocalRelationshipDate(localRecord)
-      setRelationshipDate(localRecord)
-      setEditing(false)
-      setNotifAsked(true)
-      if ("Notification" in window && Notification.permission !== "granted") {
-        Notification.requestPermission()
-      }
-      setSaving(false)
-      return
-    }
     try {
-      const existing = await base44.entities.RelationshipDate.list();
-      if (existing && existing.length > 0) {
-        await base44.entities.RelationshipDate.update(existing[0].id, { start_date: dateStr, set_by: "andreea" });
-      } else {
-        await base44.entities.RelationshipDate.create({ start_date: dateStr, set_by: "andreea" });
-      }
+      await cloudSetRelationshipDate({ start_date: dateStr })
       await loadDate();
       setEditing(false);
       // Ask for notifications
@@ -119,14 +64,7 @@ export default function Anniversary() {
         Notification.requestPermission();
       }
     } catch (e) {
-      const localRecord = { id: "local", start_date: dateStr, set_by: "andreea" }
-      setLocalRelationshipDate(localRecord)
-      setRelationshipDate(localRecord)
-      setEditing(false)
-      setNotifAsked(true)
-      if ("Notification" in window && Notification.permission !== "granted") {
-        Notification.requestPermission()
-      }
+      window.alert(e?.message || "Non sono riuscito a salvare. Riprova.")
     }
     setSaving(false);
   }
@@ -136,30 +74,15 @@ export default function Anniversary() {
     const ok = window.confirm("Vuoi davvero rimuovere la data? (Poi potrai inserirla di nuovo)");
     if (!ok) return;
     setDeleting(true);
-    if (!appParams.appId) {
-      clearLocalRelationshipDate()
-      setRelationshipDate(null)
-      setDay("")
-      setMonth("")
-      setYear("")
-      setEditing(true)
-      setDeleting(false)
-      return
-    }
     try {
-      await base44.entities.RelationshipDate.delete(relationshipDate.id);
+      await cloudClearRelationshipDate()
       setRelationshipDate(null);
       setDay("");
       setMonth("");
       setYear("");
       setEditing(true);
     } catch (e) {
-      clearLocalRelationshipDate()
-      setRelationshipDate(null)
-      setDay("")
-      setMonth("")
-      setYear("")
-      setEditing(true)
+      window.alert(e?.message || "Non sono riuscito a rimuovere la data. Riprova.")
     }
     setDeleting(false);
   }

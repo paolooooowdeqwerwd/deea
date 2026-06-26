@@ -16,12 +16,17 @@ export default function Login() {
     setError("")
     setLoading(true)
     await new Promise((r) => setTimeout(r, 600))
-    const ok = login(name, password)
-    setLoading(false)
-    if (ok) {
-      navigate("/")
-    } else {
-      setError("Nome o password non corretti. Solo tu puoi entrare qui, amore mio 💕")
+    try {
+      const ok = await login(name, password)
+      setLoading(false)
+      if (ok) {
+        navigate("/")
+      } else {
+        setError("Nome o password non corretti. Solo tu puoi entrare qui, amore mio 💕")
+      }
+    } catch (e) {
+      setLoading(false)
+      setError(e?.message || "Non riesco ad accedere. Riprova.")
     }
   }
 

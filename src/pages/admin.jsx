@@ -1,27 +1,10 @@
 import React, { useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { base44 } from "@/api/base44Client"
-import { appParams } from "@/lib/app-params"
+import { cloudListMessages, cloudSendAdminReply } from "@/api/cloudClient"
 import { adminLogout, isAdminLoggedIn } from "@/lib/auth"
-import { Heart, LogOut, MessageSquare, RefreshCw, Shield, Trash2 } from "lucide-react"
+import { Heart, LogOut, MessageSquare, RefreshCw, Shield } from "lucide-react"
 import { format, parseISO } from "date-fns"
 import { it } from "date-fns/locale"
-
-const LOCAL_MOOD_MESSAGES_KEY = "deea_mood_messages"
-
-function getLocalMoodMessages() {
-  try {
-    const raw = localStorage.getItem(LOCAL_MOOD_MESSAGES_KEY)
-    const parsed = raw ? JSON.parse(raw) : []
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-function setLocalMoodMessages(records) {
-  localStorage.setItem(LOCAL_MOOD_MESSAGES_KEY, JSON.stringify(records))
-}
 
 const MOOD_COLORS = {
   Vogliosa: "bg-orange-100 text-orange-700 border-orange-200",
@@ -40,13 +23,14 @@ export default function Admin() {
   const navigate = useNavigate()
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(true)
-  const [deleting, setDeleting] = useState(null)
   const [syncError, setSyncError] = useState(null)
   const [lastUpdatedAt, setLastUpdatedAt] = useState(null)
+  const [replyText, setReplyText] = useState("")
+  const [sendingReply, setSendingReply] = useState(false)
   const [notificationPermission, setNotificationPermission] = useState(() =>
     typeof Notification === "undefined" ? "unsupported" : Notification.permission
   )
-  const lastSeenMessageIdRef = useRef(null)
+  const lastSeenUserMessageIdRef = useRef(null)
 
   useEffect(() => {
     if (!isAdminLoggedIn()) {
@@ -77,71 +61,57 @@ export default function Admin() {
     }
   }, [])
 
-  async function fetchMessages() {
-    if (!appParams.appId) return getLocalMoodMessages()
-    const data = await base44.entities.MoodMessage.list("-sent_at")
-    return data || []
-  }
-
   async function refreshMessages({ showLoading, notify }) {
     if (showLoading) setLoading(true)
-    let next = null
     try {
-      next = await fetchMessages()
+      const data = await cloudListMessages({ admin: true, order: "desc" })
+      const next = data?.messages || []
       setSyncError(null)
       setLastUpdatedAt(new Date().toISOString())
-    } catch {
-      if (appParams.appId) {
-        setSyncError("Connessione non disponibile: non riesco a sincronizzare in tempo reale.")
-        if (showLoading) setLoading(false)
-        return
-      }
-      next = getLocalMoodMessages()
-    }
+      setMessages(next)
 
-    if (notify) {
-      const latest = next?.[0]
-      if (latest?.id) {
-        const prevLastSeen = lastSeenMessageIdRef.current
-        if (prevLastSeen && prevLastSeen !== latest.id) {
-          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            const title = "Nuova richiesta ricevuta"
-            const body = latest.message?.trim()
-              ? `${latest.mood_emoji ?? ""} ${latest.mood_label ?? ""} — ${latest.message.trim()}`
-              : `${latest.mood_emoji ?? ""} ${latest.mood_label ?? ""}`.trim()
-            const n = new Notification(title, { body })
-            n.onclick = () => {
-              window.focus()
+      if (notify) {
+        const latestUser = next.find((m) => m.direction === "user")
+        if (latestUser?.id) {
+          const prevLastSeen = lastSeenUserMessageIdRef.current
+          if (prevLastSeen && prevLastSeen !== latestUser.id) {
+            if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+              const title = "Nuova richiesta ricevuta"
+              const body = latestUser.message?.trim()
+                ? `${latestUser.mood_emoji ?? ""} ${latestUser.mood_label ?? ""} — ${latestUser.message.trim()}`
+                : `${latestUser.mood_emoji ?? ""} ${latestUser.mood_label ?? ""}`.trim()
+              const n = new Notification(title, { body })
+              n.onclick = () => {
+                window.focus()
+              }
             }
           }
+          lastSeenUserMessageIdRef.current = latestUser.id
         }
-        lastSeenMessageIdRef.current = latest.id
+      } else {
+        const latestUser = next.find((m) => m.direction === "user")
+        if (latestUser?.id) lastSeenUserMessageIdRef.current = latestUser.id
       }
-    } else {
-      const latest = next?.[0]
-      if (latest?.id) lastSeenMessageIdRef.current = latest.id
+    } catch (e) {
+      setSyncError(e?.message || "Connessione non disponibile: non riesco a sincronizzare in tempo reale.")
+      if (showLoading) setLoading(false)
+      return
     }
-
-    setMessages(next)
     if (showLoading) setLoading(false)
   }
 
-  async function deleteMessage(id) {
-    setDeleting(id)
-    if (!appParams.appId) {
-      const next = getLocalMoodMessages().filter((m) => m.id !== id)
-      setLocalMoodMessages(next)
-      setMessages(next)
-      setDeleting(null)
-      return
-    }
+  async function handleSendReply() {
+    const text = replyText.trim()
+    if (!text) return
+    setSendingReply(true)
     try {
-      await base44.entities.MoodMessage.delete(id)
-      setMessages((prev) => prev.filter((m) => m.id !== id))
+      await cloudSendAdminReply({ message: text })
+      setReplyText("")
+      await refreshMessages({ showLoading: false, notify: false })
     } catch (e) {
-      window.alert("Non sono riuscito a eliminare. Controlla la connessione e riprova.")
+      window.alert(e?.message || "Non sono riuscito a inviare la risposta. Riprova.")
     }
-    setDeleting(null)
+    setSendingReply(false)
   }
 
   function handleLogout() {
@@ -166,7 +136,9 @@ export default function Admin() {
     }
   }
 
-  const latestMood = messages.find((m) => m.mood_label && m.mood_label !== "Messaggio")
+  const latestMood = messages.find((m) => m.direction === "user" && m.mood_label && m.mood_label !== "Messaggio")
+  const userMessages = messages.filter((m) => m.direction === "user")
+  const adminMessages = messages.filter((m) => m.direction === "admin")
 
   return (
     <div className="flex flex-col items-center px-4 pb-12">
@@ -199,27 +171,43 @@ export default function Admin() {
       </div>
 
       <div className="w-full max-w-2xl flex flex-col gap-4">
-        {(syncError || !appParams.appId) && (
+        {syncError && (
           <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow border border-pink-100 p-4">
             <p className="font-body text-pink-700 text-sm font-semibold">Sincronizzazione</p>
-            {!appParams.appId ? (
-              <p className="font-body text-pink-400 text-xs">
-                Base44 non configurato: qui vedi solo le richieste salvate su questo dispositivo. Per vedere anche quelle inviate dal
-                telefono (e viceversa) serve la sincronizzazione cloud.
-              </p>
-            ) : (
-              <p className="font-body text-rose-500 text-xs">{syncError}</p>
-            )}
+            <p className="font-body text-rose-500 text-xs">{syncError}</p>
           </div>
         )}
-        {!syncError && appParams.appId && (
+        {!syncError && (
           <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow border border-pink-100 p-4">
             <p className="font-body text-pink-700 text-sm font-semibold">Sincronizzazione</p>
             <p className="font-body text-pink-400 text-xs">
-              Attiva: mostro le richieste da tutti i dispositivi. {lastUpdatedAt ? `Ultimo aggiornamento: ${formatDate(lastUpdatedAt)}.` : ""}
+              Attiva: mostro le richieste da tutti i dispositivi.{" "}
+              {lastUpdatedAt ? `Ultimo aggiornamento: ${formatDate(lastUpdatedAt)}.` : ""}
             </p>
           </div>
         )}
+
+        <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-xl border border-pink-100 p-5">
+          <p className="font-body text-pink-700 text-sm font-semibold mb-2">Rispondi</p>
+          <textarea
+            value={replyText}
+            onChange={(e) => setReplyText(e.target.value)}
+            rows={3}
+            placeholder="Scrivi un messaggio che comparirà nella sua app..."
+            className="w-full px-4 py-3 rounded-2xl border border-pink-200 bg-pink-50/50 text-pink-800 placeholder-pink-300 font-body text-sm focus:outline-none focus:ring-2 focus:ring-pink-300 focus:border-pink-300 transition-all resize-none leading-relaxed"
+          />
+          <div className="flex justify-end mt-3">
+            <button
+              onClick={handleSendReply}
+              disabled={sendingReply || !replyText.trim()}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 text-white font-body text-xs font-semibold shadow hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              type="button"
+            >
+              {sendingReply ? "Invio..." : "Invia"}
+            </button>
+          </div>
+        </div>
+
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow border border-pink-100 p-4 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="font-body text-pink-700 text-sm font-semibold">Notifiche</p>
@@ -268,7 +256,7 @@ export default function Admin() {
           <div className="px-5 py-4 border-b border-pink-100 flex items-center gap-2">
             <MessageSquare size={16} className="text-pink-500" />
             <h2 className="font-body font-semibold text-pink-700 text-sm">
-              {messages.length === 0 ? "Nessun messaggio ancora" : `${messages.length} messaggi`}
+              {userMessages.length === 0 ? "Nessuna richiesta ancora" : `${userMessages.length} richieste`}
             </h2>
           </div>
 
@@ -276,7 +264,7 @@ export default function Admin() {
             <div className="flex items-center justify-center py-12">
               <div className="w-8 h-8 border-4 border-pink-200 border-t-pink-500 rounded-full animate-spin" />
             </div>
-          ) : messages.length === 0 ? (
+          ) : userMessages.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 gap-3">
               <Heart size={32} className="text-pink-200" />
               <p className="font-display italic text-pink-300 text-sm">
@@ -285,44 +273,52 @@ export default function Admin() {
             </div>
           ) : (
             <div className="divide-y divide-pink-50">
-              {messages.map((msg) => (
+              {userMessages.map((msg) => (
                 <div key={msg.id} className="px-5 py-4 hover:bg-pink-50/30 transition-colors">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3 flex-1 min-w-0">
-                      <span className="text-2xl flex-shrink-0 mt-0.5">{msg.mood_emoji}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span
-                            className={`font-body text-xs font-semibold px-2 py-0.5 rounded-full border ${
-                              MOOD_COLORS[msg.mood_label] || "bg-pink-100 text-pink-700 border-pink-200"
-                            }`}
-                          >
-                            {msg.mood_label}
-                          </span>
-                          <span className="font-body text-pink-300 text-xs">
-                            {formatDate(msg.sent_at || msg.created_date)}
-                          </span>
-                        </div>
-                        {msg.message && (
-                          <p className="font-body text-pink-700 text-sm leading-relaxed">
-                            {msg.message}
-                          </p>
-                        )}
+                  <div className="flex items-start gap-3 flex-1 min-w-0">
+                    <span className="text-2xl flex-shrink-0 mt-0.5">{msg.mood_emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span
+                          className={`font-body text-xs font-semibold px-2 py-0.5 rounded-full border ${
+                            MOOD_COLORS[msg.mood_label] || "bg-pink-100 text-pink-700 border-pink-200"
+                          }`}
+                        >
+                          {msg.mood_label}
+                        </span>
+                        <span className="font-body text-pink-300 text-xs">
+                          {formatDate(msg.sent_at)}
+                        </span>
                       </div>
-                    </div>
-                    <button
-                      onClick={() => deleteMessage(msg.id)}
-                      disabled={deleting === msg.id}
-                      className="flex-shrink-0 p-1.5 rounded-lg text-rose-300 hover:text-rose-500 hover:bg-rose-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                      type="button"
-                    >
-                      {deleting === msg.id ? (
-                        <div className="w-4 h-4 border-2 border-rose-300 border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <Trash2 size={14} />
+                      {msg.message && (
+                        <p className="font-body text-pink-700 text-sm leading-relaxed whitespace-pre-wrap">
+                          {msg.message}
+                        </p>
                       )}
-                    </button>
+                    </div>
                   </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-xl border border-pink-100 overflow-hidden">
+          <div className="px-5 py-4 border-b border-pink-100">
+            <h2 className="font-body font-semibold text-pink-700 text-sm">
+              {adminMessages.length === 0 ? "Nessuna risposta inviata" : `${adminMessages.length} risposte inviate`}
+            </h2>
+          </div>
+          {adminMessages.length === 0 ? (
+            <div className="px-5 py-6">
+              <p className="font-body text-pink-300 text-sm text-center">Quando invii una risposta, comparirà qui e nella sua app.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-pink-50">
+              {adminMessages.map((m) => (
+                <div key={m.id} className="px-5 py-4">
+                  <p className="font-body text-pink-700 text-sm leading-relaxed whitespace-pre-wrap">{m.message}</p>
+                  <p className="font-body text-pink-300 text-xs mt-1">{formatDate(m.sent_at)}</p>
                 </div>
               ))}
             </div>

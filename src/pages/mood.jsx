@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { base44 } from "@/api/base44Client"
-import { appParams } from "@/lib/app-params"
+import { cloudListMessages, cloudSendUserMessage } from "@/api/cloudClient"
 import { isLoggedIn } from "@/lib/auth"
 import { Heart, Send } from "lucide-react"
 
@@ -17,34 +16,15 @@ const MOODS = [
   { label: "Normale", emoji: "😐", color: "from-gray-400 to-slate-500" },
 ]
 
-const LOCAL_MOOD_MESSAGES_KEY = "deea_mood_messages"
-
-function getLocalMoodMessages() {
-  try {
-    const raw = localStorage.getItem(LOCAL_MOOD_MESSAGES_KEY)
-    const parsed = raw ? JSON.parse(raw) : []
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-function saveLocalMoodMessage(record) {
-  const prev = getLocalMoodMessages()
-  localStorage.setItem(LOCAL_MOOD_MESSAGES_KEY, JSON.stringify([record, ...prev]))
-}
-
 export default function Mood() {
   const navigate = useNavigate()
   const [selectedMood, setSelectedMood] = useState(null)
   const [message, setMessage] = useState("")
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
-  const [syncInfo, setSyncInfo] = useState(() => ({
-    mode: appParams.appId ? "cloud" : "local",
-    status: appParams.appId ? "checking" : "disabled",
-    error: null,
-  }))
+  const [syncError, setSyncError] = useState(null)
+  const [adminMessages, setAdminMessages] = useState([])
+  const [loadingAdminMessages, setLoadingAdminMessages] = useState(true)
 
   useEffect(() => {
     if (!isLoggedIn()) navigate("/login")
@@ -52,24 +32,36 @@ export default function Mood() {
 
   useEffect(() => {
     let cancelled = false
-    async function check() {
-      if (!appParams.appId) return
+
+    async function refresh({ showLoading }) {
+      if (showLoading) setLoadingAdminMessages(true)
       try {
-        await base44.entities.MoodMessage.list("-sent_at")
-        if (!cancelled) setSyncInfo({ mode: "cloud", status: "ok", error: null })
-      } catch {
-        if (!cancelled) {
-          setSyncInfo({
-            mode: "cloud",
-            status: "error",
-            error: "Non riesco a collegarmi al server: i messaggi potrebbero restare solo su questo dispositivo.",
-          })
-        }
+        const data = await cloudListMessages({ order: "asc" })
+        if (cancelled) return
+        const onlyAdmin = (data?.messages || []).filter((m) => m.direction === "admin")
+        setAdminMessages(onlyAdmin)
+        setSyncError(null)
+      } catch (e) {
+        if (cancelled) return
+        setSyncError(e?.message || "Non riesco a collegarmi al server.")
       }
+      if (!cancelled && showLoading) setLoadingAdminMessages(false)
     }
-    check()
+
+    refresh({ showLoading: true })
+    const interval = window.setInterval(() => refresh({ showLoading: false }), 2000)
+
+    function onFocus() {
+      refresh({ showLoading: false })
+    }
+    window.addEventListener("focus", onFocus)
+    document.addEventListener("visibilitychange", onFocus)
+
     return () => {
       cancelled = true
+      window.clearInterval(interval)
+      window.removeEventListener("focus", onFocus)
+      document.removeEventListener("visibilitychange", onFocus)
     }
   }, [])
 
@@ -80,79 +72,24 @@ export default function Mood() {
     const moodEmoji = selectedMood ? selectedMood.emoji : "💬"
     const moodLabel = selectedMood ? selectedMood.label : "Messaggio"
     const trimmedMessage = message.trim()
-    let savedLocally = false
-    if (!appParams.appId) {
-      try {
-        const localId =
-          typeof crypto !== "undefined" && crypto.randomUUID
-            ? crypto.randomUUID()
-            : `${Date.now()}_${Math.random().toString(16).slice(2)}`
-        saveLocalMoodMessage({
-          id: localId,
-          mood_emoji: moodEmoji,
-          mood_label: moodLabel,
-          message: trimmedMessage,
-          sent_at: sentAt,
-          created_date: sentAt,
-        })
-        savedLocally = true
-        window.alert("Hai inviato tutto con successo (salvato solo su questo dispositivo).")
-        setSent(true)
-        setTimeout(() => {
-          setSent(false)
-          setSelectedMood(null)
-          setMessage("")
-        }, 3000)
-      } catch {
-        window.alert("Non sono riuscito a inviare. Riprova.")
-      }
-      setSending(false)
-      return
-    }
-    let didSend = false
     try {
-      await base44.entities.MoodMessage.create({
-        mood_emoji: moodEmoji,
+      await cloudSendUserMessage({
         mood_label: moodLabel,
+        mood_emoji: moodEmoji,
         message: trimmedMessage,
         sent_at: sentAt,
       })
-      didSend = true
-    } catch (e) {
-      try {
-        const localId =
-          typeof crypto !== "undefined" && crypto.randomUUID
-            ? crypto.randomUUID()
-            : `${Date.now()}_${Math.random().toString(16).slice(2)}`
-        saveLocalMoodMessage({
-          id: localId,
-          mood_emoji: moodEmoji,
-          mood_label: moodLabel,
-          message: trimmedMessage,
-          sent_at: sentAt,
-          created_date: sentAt,
-        })
-        didSend = true
-        savedLocally = true
-      } catch (innerError) {
-        window.alert("Non sono riuscito a inviare. Riprova.")
-        setSending(false)
-        return
-      }
-    }
-
-    if (didSend) {
-      window.alert(
-        savedLocally
-          ? "Messaggio salvato solo su questo dispositivo: non riesco a sincronizzare online in questo momento."
-          : "Hai inviato tutto con successo."
-      )
+      setSyncError(null)
+      window.alert("Hai inviato tutto con successo.")
       setSent(true)
       setTimeout(() => {
         setSent(false)
         setSelectedMood(null)
         setMessage("")
       }, 3000)
+    } catch (e) {
+      setSyncError(e?.message || "Non sono riuscito a inviare. Riprova.")
+      window.alert(e?.message || "Non sono riuscito a inviare. Riprova.")
     }
     setSending(false)
   }
@@ -167,17 +104,10 @@ export default function Mood() {
       </div>
 
       <div className="w-full max-w-sm mb-6">
-        {syncInfo.mode === "local" ? (
+        {syncError ? (
           <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow border border-pink-100 p-4">
             <p className="font-body text-pink-700 text-sm font-semibold">Sincronizzazione</p>
-            <p className="font-body text-pink-400 text-xs">
-              Disattivata: i messaggi vengono salvati solo su questo dispositivo e non arrivano al pannello admin su altri dispositivi.
-            </p>
-          </div>
-        ) : syncInfo.status === "error" ? (
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow border border-pink-100 p-4">
-            <p className="font-body text-pink-700 text-sm font-semibold">Sincronizzazione</p>
-            <p className="font-body text-rose-500 text-xs">{syncInfo.error}</p>
+            <p className="font-body text-rose-500 text-xs">{syncError}</p>
           </div>
         ) : null}
       </div>
@@ -252,6 +182,37 @@ export default function Mood() {
           <p className="font-display italic text-pink-300 text-xs text-center">
             "Non c'è nulla che non possiamo affrontare insieme" 🌸
           </p>
+
+          <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-xl border border-pink-100 overflow-hidden">
+            <div className="px-5 py-4 border-b border-pink-100">
+              <h2 className="font-body font-semibold text-pink-700 text-sm">Messaggi dal pannello admin</h2>
+              <p className="font-body text-pink-400 text-xs">Qui trovi tutto quello che ti scrivo io dall’admin.</p>
+            </div>
+
+            {loadingAdminMessages ? (
+              <div className="flex items-center justify-center py-10">
+                <div className="w-7 h-7 border-4 border-pink-200 border-t-pink-500 rounded-full animate-spin" />
+              </div>
+            ) : adminMessages.length === 0 ? (
+              <div className="px-5 py-6">
+                <p className="font-body text-pink-300 text-sm text-center">Ancora nessun messaggio 💌</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-pink-50">
+                {adminMessages
+                  .slice()
+                  .reverse()
+                  .map((m) => (
+                    <div key={m.id} className="px-5 py-4">
+                      <div className="flex items-start gap-3">
+                        <span className="text-xl mt-0.5">💌</span>
+                        <p className="font-body text-pink-700 text-sm leading-relaxed whitespace-pre-wrap">{m.message}</p>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

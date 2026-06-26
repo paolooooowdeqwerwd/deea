@@ -15,12 +15,17 @@ export default function AdminLogin() {
     setError("")
     setLoading(true)
     await new Promise((r) => setTimeout(r, 500))
-    const ok = adminLogin(password)
-    setLoading(false)
-    if (ok) {
-      navigate("/admin")
-    } else {
-      setError("Password errata. Accesso negato.")
+    try {
+      const ok = await adminLogin(password)
+      setLoading(false)
+      if (ok) {
+        navigate("/admin")
+      } else {
+        setError("Password errata. Accesso negato.")
+      }
+    } catch (e) {
+      setLoading(false)
+      setError(e?.message || "Non riesco ad accedere. Riprova.")
     }
   }
 
