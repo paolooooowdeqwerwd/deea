@@ -62,6 +62,18 @@ export default function Admin() {
     return () => window.clearInterval(interval)
   }, [])
 
+  useEffect(() => {
+    function syncPermission() {
+      setNotificationPermission(typeof Notification === "undefined" ? "unsupported" : Notification.permission)
+    }
+    document.addEventListener("visibilitychange", syncPermission)
+    window.addEventListener("focus", syncPermission)
+    return () => {
+      document.removeEventListener("visibilitychange", syncPermission)
+      window.removeEventListener("focus", syncPermission)
+    }
+  }, [])
+
   async function fetchMessages() {
     if (!appParams.appId) return getLocalMoodMessages()
     try {
@@ -178,14 +190,26 @@ export default function Admin() {
       </div>
 
       <div className="w-full max-w-2xl flex flex-col gap-4">
-        {notificationPermission !== "unsupported" && notificationPermission !== "granted" && (
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow border border-pink-100 p-4 flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="font-body text-pink-700 text-sm font-semibold">Notifiche</p>
+        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow border border-pink-100 p-4 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-body text-pink-700 text-sm font-semibold">Notifiche</p>
+            {notificationPermission === "granted" ? (
+              <p className="font-body text-pink-400 text-xs">Attive: ti avviso quando arriva una nuova richiesta.</p>
+            ) : notificationPermission === "denied" ? (
+              <p className="font-body text-pink-400 text-xs">
+                Bloccate dal browser: abilita le notifiche dalle impostazioni del browser e ricarica la pagina.
+              </p>
+            ) : notificationPermission === "unsupported" ? (
+              <p className="font-body text-pink-400 text-xs">
+                Non supportate qui. Su iPhone funzionano solo se aggiungi l’app alla Home e la apri da lì.
+              </p>
+            ) : (
               <p className="font-body text-pink-400 text-xs">
                 Abilita le notifiche per sapere quando arriva una nuova richiesta.
               </p>
-            </div>
+            )}
+          </div>
+          {notificationPermission === "default" && (
             <button
               onClick={requestNotifications}
               className="flex-shrink-0 px-3 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 text-white font-body text-xs font-semibold shadow hover:scale-[1.02] active:scale-[0.98] transition-all"
@@ -193,8 +217,8 @@ export default function Admin() {
             >
               Abilita
             </button>
-          </div>
-        )}
+          )}
+        </div>
         {latestMood && (
           <div className="bg-gradient-to-r from-pink-500 to-rose-500 rounded-3xl shadow-xl p-5 text-white">
             <p className="font-body text-pink-100 text-xs mb-1 uppercase tracking-wider">
