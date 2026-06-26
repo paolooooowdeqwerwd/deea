@@ -41,6 +41,8 @@ export default function Admin() {
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(null)
+  const [syncError, setSyncError] = useState(null)
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null)
   const [notificationPermission, setNotificationPermission] = useState(() =>
     typeof Notification === "undefined" ? "unsupported" : Notification.permission
   )
@@ -58,35 +60,44 @@ export default function Admin() {
     if (!isAdminLoggedIn()) return
     const interval = window.setInterval(() => {
       refreshMessages({ showLoading: false, notify: true })
-    }, 6000)
+    }, 2000)
     return () => window.clearInterval(interval)
   }, [])
 
   useEffect(() => {
-    function syncPermission() {
+    function onVisibilityOrFocus() {
       setNotificationPermission(typeof Notification === "undefined" ? "unsupported" : Notification.permission)
+      if (isAdminLoggedIn()) refreshMessages({ showLoading: false, notify: false })
     }
-    document.addEventListener("visibilitychange", syncPermission)
-    window.addEventListener("focus", syncPermission)
+    document.addEventListener("visibilitychange", onVisibilityOrFocus)
+    window.addEventListener("focus", onVisibilityOrFocus)
     return () => {
-      document.removeEventListener("visibilitychange", syncPermission)
-      window.removeEventListener("focus", syncPermission)
+      document.removeEventListener("visibilitychange", onVisibilityOrFocus)
+      window.removeEventListener("focus", onVisibilityOrFocus)
     }
   }, [])
 
   async function fetchMessages() {
     if (!appParams.appId) return getLocalMoodMessages()
-    try {
-      const data = await base44.entities.MoodMessage.list("-sent_at")
-      return data || []
-    } catch (e) {
-      return getLocalMoodMessages()
-    }
+    const data = await base44.entities.MoodMessage.list("-sent_at")
+    return data || []
   }
 
   async function refreshMessages({ showLoading, notify }) {
     if (showLoading) setLoading(true)
-    const next = await fetchMessages()
+    let next = null
+    try {
+      next = await fetchMessages()
+      setSyncError(null)
+      setLastUpdatedAt(new Date().toISOString())
+    } catch {
+      if (appParams.appId) {
+        setSyncError("Connessione non disponibile: non riesco a sincronizzare in tempo reale.")
+        if (showLoading) setLoading(false)
+        return
+      }
+      next = getLocalMoodMessages()
+    }
 
     if (notify) {
       const latest = next?.[0]
@@ -128,9 +139,7 @@ export default function Admin() {
       await base44.entities.MoodMessage.delete(id)
       setMessages((prev) => prev.filter((m) => m.id !== id))
     } catch (e) {
-      const next = getLocalMoodMessages().filter((m) => m.id !== id)
-      setLocalMoodMessages(next)
-      setMessages(next)
+      window.alert("Non sono riuscito a eliminare. Controlla la connessione e riprova.")
     }
     setDeleting(null)
   }
@@ -190,6 +199,27 @@ export default function Admin() {
       </div>
 
       <div className="w-full max-w-2xl flex flex-col gap-4">
+        {(syncError || !appParams.appId) && (
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow border border-pink-100 p-4">
+            <p className="font-body text-pink-700 text-sm font-semibold">Sincronizzazione</p>
+            {!appParams.appId ? (
+              <p className="font-body text-pink-400 text-xs">
+                Base44 non configurato: qui vedi solo le richieste salvate su questo dispositivo. Per vedere anche quelle inviate dal
+                telefono (e viceversa) serve la sincronizzazione cloud.
+              </p>
+            ) : (
+              <p className="font-body text-rose-500 text-xs">{syncError}</p>
+            )}
+          </div>
+        )}
+        {!syncError && appParams.appId && (
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow border border-pink-100 p-4">
+            <p className="font-body text-pink-700 text-sm font-semibold">Sincronizzazione</p>
+            <p className="font-body text-pink-400 text-xs">
+              Attiva: mostro le richieste da tutti i dispositivi. {lastUpdatedAt ? `Ultimo aggiornamento: ${formatDate(lastUpdatedAt)}.` : ""}
+            </p>
+          </div>
+        )}
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow border border-pink-100 p-4 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="font-body text-pink-700 text-sm font-semibold">Notifiche</p>

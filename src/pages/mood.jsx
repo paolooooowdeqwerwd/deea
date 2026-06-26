@@ -40,9 +40,37 @@ export default function Mood() {
   const [message, setMessage] = useState("")
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
+  const [syncInfo, setSyncInfo] = useState(() => ({
+    mode: appParams.appId ? "cloud" : "local",
+    status: appParams.appId ? "checking" : "disabled",
+    error: null,
+  }))
 
   useEffect(() => {
     if (!isLoggedIn()) navigate("/login")
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    async function check() {
+      if (!appParams.appId) return
+      try {
+        await base44.entities.MoodMessage.list("-sent_at")
+        if (!cancelled) setSyncInfo({ mode: "cloud", status: "ok", error: null })
+      } catch {
+        if (!cancelled) {
+          setSyncInfo({
+            mode: "cloud",
+            status: "error",
+            error: "Non riesco a collegarmi al server: i messaggi potrebbero restare solo su questo dispositivo.",
+          })
+        }
+      }
+    }
+    check()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   async function handleSend() {
@@ -52,6 +80,7 @@ export default function Mood() {
     const moodEmoji = selectedMood ? selectedMood.emoji : "💬"
     const moodLabel = selectedMood ? selectedMood.label : "Messaggio"
     const trimmedMessage = message.trim()
+    let savedLocally = false
     if (!appParams.appId) {
       try {
         const localId =
@@ -66,7 +95,8 @@ export default function Mood() {
           sent_at: sentAt,
           created_date: sentAt,
         })
-        window.alert("Hai inviato tutto con successo.")
+        savedLocally = true
+        window.alert("Hai inviato tutto con successo (salvato solo su questo dispositivo).")
         setSent(true)
         setTimeout(() => {
           setSent(false)
@@ -103,6 +133,7 @@ export default function Mood() {
           created_date: sentAt,
         })
         didSend = true
+        savedLocally = true
       } catch (innerError) {
         window.alert("Non sono riuscito a inviare. Riprova.")
         setSending(false)
@@ -111,7 +142,11 @@ export default function Mood() {
     }
 
     if (didSend) {
-      window.alert("Hai inviato tutto con successo.")
+      window.alert(
+        savedLocally
+          ? "Messaggio salvato solo su questo dispositivo: non riesco a sincronizzare online in questo momento."
+          : "Hai inviato tutto con successo."
+      )
       setSent(true)
       setTimeout(() => {
         setSent(false)
@@ -129,6 +164,22 @@ export default function Mood() {
         <div className="text-4xl mb-3">🌸</div>
         <h1 className="font-display text-3xl font-bold text-pink-600 italic">Come ti senti oggi?</h1>
         <p className="font-body text-pink-400 text-sm mt-2">Dimmi tutto, sono qui per te 💕</p>
+      </div>
+
+      <div className="w-full max-w-sm mb-6">
+        {syncInfo.mode === "local" ? (
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow border border-pink-100 p-4">
+            <p className="font-body text-pink-700 text-sm font-semibold">Sincronizzazione</p>
+            <p className="font-body text-pink-400 text-xs">
+              Disattivata: i messaggi vengono salvati solo su questo dispositivo e non arrivano al pannello admin su altri dispositivi.
+            </p>
+          </div>
+        ) : syncInfo.status === "error" ? (
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow border border-pink-100 p-4">
+            <p className="font-body text-pink-700 text-sm font-semibold">Sincronizzazione</p>
+            <p className="font-body text-rose-500 text-xs">{syncInfo.error}</p>
+          </div>
+        ) : null}
       </div>
 
       {sent ? (

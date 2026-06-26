@@ -1,6 +1,7 @@
 import base44 from "@base44/vite-plugin"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
+import { resolve } from "path"
 
 export default defineConfig({
   plugins: [
@@ -12,5 +13,13 @@ export default defineConfig({
       visualEditAgent: true
     }),
     react(),
-  ]
+  ],
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, "index.html"),
+        admin: resolve(__dirname, "admin.html"),
+      },
+    },
+  },
 })
