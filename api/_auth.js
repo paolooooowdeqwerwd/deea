@@ -1,4 +1,4 @@
-const crypto = require("crypto")
+import crypto from "node:crypto"
 
 const base64url = (input) => {
   const buf = Buffer.isBuffer(input) ? input : Buffer.from(String(input))
@@ -27,7 +27,7 @@ const sign = (data) => {
   return base64url(h.digest())
 }
 
-const createToken = ({ role, ttlSeconds }) => {
+export function createToken({ role, ttlSeconds }) {
   const now = Math.floor(Date.now() / 1000)
   const payload = {
     role,
@@ -39,7 +39,7 @@ const createToken = ({ role, ttlSeconds }) => {
   return `${encoded}.${signature}`
 }
 
-const verifyToken = (token) => {
+export function verifyToken(token) {
   if (!token || typeof token !== "string") return null
   const parts = token.split(".")
   if (parts.length !== 2) return null
@@ -49,6 +49,7 @@ const verifyToken = (token) => {
   const b = Buffer.from(expected)
   if (a.length !== b.length) return null
   if (!crypto.timingSafeEqual(a, b)) return null
+
   let payload = null
   try {
     payload = JSON.parse(fromBase64url(encoded))
@@ -60,5 +61,3 @@ const verifyToken = (token) => {
   if (!payload?.role) return null
   return payload
 }
-
-module.exports = { createToken, verifyToken }

@@ -1,5 +1,5 @@
-const { readBody, sendJson, sendError } = require("../_util.cjs")
-const { createToken } = require("../_auth.cjs")
+import { readBody, sendError, sendJson } from "../_util.js"
+import { createToken } from "../_auth.js"
 
 const getEnv = (name) => process.env[name] ?? null
 
@@ -9,7 +9,7 @@ const getUserCredentials = () => {
   return { name, password }
 }
 
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   if (req.method !== "POST") return sendError(res, 405, "Method not allowed")
 
   const body = await readBody(req)

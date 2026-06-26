@@ -1,6 +1,6 @@
-const { readBody, sendJson, sendError, getBearerToken } = require("./_util.cjs")
-const { verifyToken } = require("./_auth.cjs")
-const { getPool, initDb } = require("./_db.cjs")
+import { readBody, sendError, sendJson, getBearerToken } from "./_util.js"
+import { verifyToken } from "./_auth.js"
+import { getPool, initDb } from "./_db.js"
 
 const requireUser = (req, res) => {
   const token = getBearerToken(req)
@@ -16,7 +16,7 @@ const requireUser = (req, res) => {
   return payload
 }
 
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   const auth = requireUser(req, res)
   if (!auth) return
 

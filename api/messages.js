@@ -1,6 +1,6 @@
-const { readBody, sendJson, sendError, getBearerToken } = require("./_util.cjs")
-const { verifyToken } = require("./_auth.cjs")
-const { getPool, initDb } = require("./_db.cjs")
+import { readBody, sendError, sendJson, getBearerToken } from "./_util.js"
+import { verifyToken } from "./_auth.js"
+import { getPool, initDb } from "./_db.js"
 
 const requireAuth = (req, res, allowedRoles) => {
   const token = getBearerToken(req)
@@ -16,7 +16,7 @@ const requireAuth = (req, res, allowedRoles) => {
   return payload
 }
 
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   await initDb()
   const pool = getPool()
 
@@ -39,8 +39,7 @@ module.exports = async (req, res) => {
       `SELECT id, direction, mood_label, mood_emoji, message, sent_at
        FROM deea_messages
        ${where}
-       ORDER BY sent_at ${order === "asc" ? "ASC" : "DESC"}`
-      ,
+       ORDER BY sent_at ${order === "asc" ? "ASC" : "DESC"}`,
       values
     )
     return sendJson(res, 200, { messages: result.rows })

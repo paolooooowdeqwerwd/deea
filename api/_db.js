@@ -1,4 +1,6 @@
-const { Pool } = require("pg")
+import pg from "pg"
+
+const { Pool } = pg
 
 let pool = null
 let initPromise = null
@@ -53,4 +55,4 @@ const initDb = async () => {
   return initPromise
 }
 
-module.exports = { getPool, initDb }
+export { getPool, initDb }
