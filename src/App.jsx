@@ -1,17 +1,17 @@
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
-import PageNotFound from './lib/PageNotFount';
-import { AuthProvider } from '@/lib/AuthContext';
+import PageNotFound from './lib/pageNotFount';
+import { AuthProvider } from '@/lib/authContext';
 import ScrollToTop from './components/ScrollToTop';
 // Add page imports here
 import AppLayout from './components/AppLayout';
-import Home from './pages/Home';
-import Login from './pages/Login';
+import Home from './pages/home';
+import Login from './pages/login';
 import Anniversary from './pages/Anniversary';
-import Mood from './pages/Mood';
-import AdminLogin from './pages/AdminLogin';
-import Admin from './pages/Admin';
+import Mood from './pages/mood';
+import AdminLogin from './pages/adminLogin';
+import Admin from './pages/admin';
 
 function App() {
   return (
