@@ -17,25 +17,36 @@ const requireAdmin = (req, res) => {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") return sendError(res, 405, "Method not allowed")
-  const auth = requireAdmin(req, res)
-  if (!auth) return
+  try {
+    if (req.method !== "POST") return sendError(res, 405, "Method not allowed")
+    const auth = requireAdmin(req, res)
+    if (!auth) return
 
-  await initDb()
-  const pool = getPool()
+    await initDb()
+    const pool = getPool()
 
-  const body = await readBody(req)
-  if (!body || body.__invalid_json) return sendError(res, 400, "Invalid JSON body")
+    const body = await readBody(req)
+    if (!body || body.__invalid_json) return sendError(res, 400, "Invalid JSON body")
 
-  const message = body.message ? String(body.message).slice(0, 4000) : ""
-  if (!message.trim()) return sendError(res, 400, "Empty message")
+    const message = body.message ? String(body.message).slice(0, 4000) : ""
+    if (!message.trim()) return sendError(res, 400, "Empty message")
 
-  const sent_at = new Date().toISOString()
-  const insert = await pool.query(
-    `INSERT INTO deea_messages (direction, mood_label, mood_emoji, message, sent_at)
-     VALUES ('admin', $1, $2, $3, $4)
-     RETURNING id, direction, mood_label, mood_emoji, message, sent_at`,
-    ["Risposta", "💌", message.trim(), sent_at]
-  )
-  return sendJson(res, 201, { message: insert.rows[0] })
+    const sent_at = new Date().toISOString()
+    const insert = await pool.query(
+      `INSERT INTO deea_messages (direction, mood_label, mood_emoji, message, sent_at)
+       VALUES ('admin', $1, $2, $3, $4)
+       RETURNING id, direction, mood_label, mood_emoji, message, sent_at`,
+      ["Risposta", "💌", message.trim(), sent_at]
+    )
+    return sendJson(res, 201, { message: insert.rows[0] })
+  } catch (e) {
+    const msg = String(e?.message || "")
+    if (msg.includes("Missing database connection string")) {
+      return sendError(res, 500, "Database non configurato su Vercel (Postgres non collegato).")
+    }
+    if (msg.includes("Missing DEEA_JWT_SECRET") || msg.includes("Missing AUTH_SECRET")) {
+      return sendError(res, 500, "Secret auth mancante su Vercel (DEEA_JWT_SECRET o AUTH_SECRET).")
+    }
+    return sendError(res, 500, "Errore server. Controlla log Vercel Functions.")
+  }
 }

@@ -20,38 +20,54 @@ const getPool = () => {
   if (!connectionString) {
     throw new Error("Missing database connection string (POSTGRES_URL or DATABASE_URL)")
   }
-  pool = new Pool({ connectionString, max: 5 })
+  pool = new Pool({
+    connectionString,
+    max: 5,
+    connectionTimeoutMillis: 5000,
+    query_timeout: 10000,
+    idleTimeoutMillis: 10000,
+    keepAlive: true,
+  })
   return pool
 }
 
 const initDb = async () => {
-  if (initPromise) return initPromise
-  initPromise = (async () => {
-    const p = getPool()
-    await p.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto;`)
-    await p.query(`
-      CREATE TABLE IF NOT EXISTS deea_messages (
-        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-        direction text NOT NULL CHECK (direction IN ('user','admin')),
-        mood_label text,
-        mood_emoji text,
-        message text,
-        sent_at timestamptz NOT NULL DEFAULT now()
-      );
-    `)
-    await p.query(`
-      CREATE TABLE IF NOT EXISTS deea_settings (
-        id int PRIMARY KEY,
-        relationship_start_date date,
-        updated_at timestamptz NOT NULL DEFAULT now()
-      );
-    `)
-    await p.query(`
-      INSERT INTO deea_settings (id)
-      VALUES (1)
-      ON CONFLICT (id) DO NOTHING;
-    `)
-  })()
+  if (!initPromise) {
+    initPromise = (async () => {
+      const p = getPool()
+      await p.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto;`)
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS deea_messages (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          direction text NOT NULL CHECK (direction IN ('user','admin')),
+          mood_label text,
+          mood_emoji text,
+          message text,
+          sent_at timestamptz NOT NULL DEFAULT now()
+        );
+      `)
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS deea_settings (
+          id int PRIMARY KEY,
+          relationship_start_date date,
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+      `)
+      await p.query(`
+        INSERT INTO deea_settings (id)
+        VALUES (1)
+        ON CONFLICT (id) DO NOTHING;
+      `)
+    })()
+  }
+
+  try {
+    await initPromise
+  } catch (e) {
+    initPromise = null
+    throw e
+  }
+
   return initPromise
 }
 
