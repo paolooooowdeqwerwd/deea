@@ -18,7 +18,7 @@ const MOODS = [
 
 export default function Mood() {
   const navigate = useNavigate()
-  const [selectedMood, setSelectedMood] = useState(null)
+  const [selectedMoods, setSelectedMoods] = useState([])
   const [message, setMessage] = useState("")
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
@@ -66,11 +66,11 @@ export default function Mood() {
   }, [])
 
   async function handleSend() {
-    if (!selectedMood && !message.trim()) return
+    if (selectedMoods.length === 0 && !message.trim()) return
     setSending(true)
     const sentAt = new Date().toISOString()
-    const moodEmoji = selectedMood ? selectedMood.emoji : "💬"
-    const moodLabel = selectedMood ? selectedMood.label : "Messaggio"
+    const moodEmoji = selectedMoods.length ? selectedMoods.map((m) => m.emoji).join(" ").slice(0, 16) : "💬"
+    const moodLabel = selectedMoods.length ? selectedMoods.map((m) => m.label).join(", ").slice(0, 64) : "Messaggio"
     const trimmedMessage = message.trim()
     try {
       await cloudSendUserMessage({
@@ -84,7 +84,7 @@ export default function Mood() {
       setSent(true)
       setTimeout(() => {
         setSent(false)
-        setSelectedMood(null)
+        setSelectedMoods([])
         setMessage("")
       }, 3000)
     } catch (e) {
@@ -117,7 +117,7 @@ export default function Mood() {
           <div className="text-6xl pulse-heart">💗</div>
           <h2 className="font-display text-2xl font-bold text-pink-600 italic">Messaggio inviato!</h2>
           <p className="font-body text-pink-400 text-sm text-center max-w-xs">
-            Il tuo amore l'ha ricevuto 🌹 Ti voglio un mondo di bene!
+            Il tuo amore l'ha ricevuto 🌹 Ti amo da morire piccola mia ❤️
           </p>
         </div>
       ) : (
@@ -130,9 +130,14 @@ export default function Mood() {
               {MOODS.map((mood) => (
                 <button
                   key={mood.label}
-                  onClick={() => setSelectedMood(selectedMood?.label === mood.label ? null : mood)}
+                  onClick={() =>
+                    setSelectedMoods((prev) => {
+                      const exists = prev.some((m) => m.label === mood.label)
+                      return exists ? prev.filter((m) => m.label !== mood.label) : [...prev, mood]
+                    })
+                  }
                   className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-2xl border-2 transition-all duration-200 ${
-                    selectedMood?.label === mood.label
+                    selectedMoods.some((m) => m.label === mood.label)
                       ? `bg-gradient-to-br ${mood.color} border-transparent shadow-lg scale-105 text-white`
                       : "bg-white/60 border-pink-100 hover:border-pink-300 hover:bg-pink-50"
                   }`}
@@ -140,7 +145,7 @@ export default function Mood() {
                   <span className="text-2xl">{mood.emoji}</span>
                   <span
                     className={`font-body text-xs font-medium leading-tight text-center ${
-                      selectedMood?.label === mood.label ? "text-white" : "text-pink-600"
+                      selectedMoods.some((m) => m.label === mood.label) ? "text-white" : "text-pink-600"
                     }`}
                   >
                     {mood.label}
@@ -165,7 +170,7 @@ export default function Mood() {
 
           <button
             onClick={handleSend}
-            disabled={sending || (!selectedMood && !message.trim())}
+            disabled={sending || (selectedMoods.length === 0 && !message.trim())}
             className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-pink-500 to-rose-500 text-white font-body font-semibold py-4 rounded-2xl shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
           >
             {sending ? (

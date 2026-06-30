@@ -1,6 +1,54 @@
 import { readBody, sendError, sendJson, getBearerToken } from "./_util.js"
 import { verifyToken } from "./_auth.js"
 import { getPool, initDb } from "./_db.js"
+import webPush from "web-push"
+
+let vapidConfigured = false
+
+const configureVapidIfPossible = () => {
+  if (vapidConfigured) return true
+  const publicKey = process.env.VAPID_PUBLIC_KEY || process.env.WEB_PUSH_PUBLIC_KEY
+  const privateKey = process.env.VAPID_PRIVATE_KEY || process.env.WEB_PUSH_PRIVATE_KEY
+  if (!publicKey || !privateKey) return false
+  const subject = process.env.VAPID_SUBJECT || "mailto:deea@example.com"
+  webPush.setVapidDetails(subject, publicKey, privateKey)
+  vapidConfigured = true
+  return true
+}
+
+async function notifyAdmins(pool, messageRow) {
+  if (!configureVapidIfPossible()) return
+  const { rows } = await pool.query(
+    `SELECT endpoint, subscription
+     FROM deea_push_subscriptions
+     WHERE role = 'admin'`
+  )
+  if (!rows?.length) return
+
+  const body = messageRow?.message?.trim()
+    ? `${messageRow.mood_emoji ?? ""} ${messageRow.mood_label ?? ""} — ${messageRow.message.trim()}`
+    : `${messageRow.mood_emoji ?? ""} ${messageRow.mood_label ?? ""}`.trim()
+
+  const payload = JSON.stringify({
+    title: "Nuova richiesta ricevuta",
+    body,
+    url: "/admin",
+    tag: "deea-new-request",
+  })
+
+  const results = await Promise.allSettled(rows.map((r) => webPush.sendNotification(r.subscription, payload)))
+  const stale = []
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i]
+    if (r.status === "rejected") {
+      const statusCode = r.reason?.statusCode
+      if (statusCode === 404 || statusCode === 410) stale.push(rows[i].endpoint)
+    }
+  }
+  if (stale.length) {
+    await pool.query(`DELETE FROM deea_push_subscriptions WHERE endpoint = ANY($1::text[])`, [stale])
+  }
+}
 
 const requireAuth = (req, res, allowedRoles) => {
   const token = getBearerToken(req)
@@ -66,7 +114,11 @@ export default async function handler(req, res) {
          RETURNING id, direction, mood_label, mood_emoji, message, sent_at`,
         [mood_label, mood_emoji, message, sent_at]
       )
-      return sendJson(res, 201, { message: insert.rows[0] })
+      const created = insert.rows[0]
+      try {
+        await notifyAdmins(pool, created)
+      } catch {}
+      return sendJson(res, 201, { message: created })
     }
 
     return sendError(res, 405, "Method not allowed")

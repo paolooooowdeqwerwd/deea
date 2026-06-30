@@ -54,6 +54,14 @@ const initDb = async () => {
         );
       `)
       await p.query(`
+        CREATE TABLE IF NOT EXISTS deea_push_subscriptions (
+          endpoint text PRIMARY KEY,
+          role text NOT NULL,
+          subscription jsonb NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+      `)
+      await p.query(`
         INSERT INTO deea_settings (id)
         VALUES (1)
         ON CONFLICT (id) DO NOTHING;

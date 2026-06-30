@@ -1,8 +1,15 @@
 import React, { useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { cloudListMessages, cloudSendAdminReply } from "@/api/cloudClient"
+import {
+  cloudDeleteAdminMessage,
+  cloudGetPushPublicKey,
+  cloudListMessages,
+  cloudSendAdminReply,
+  cloudSubscribeAdminPush,
+  cloudUnsubscribeAdminPush,
+} from "@/api/cloudClient"
 import { adminLogout, isAdminLoggedIn } from "@/lib/auth"
-import { Heart, LogOut, MessageSquare, RefreshCw, Shield } from "lucide-react"
+import { Heart, LogOut, MessageSquare, RefreshCw, Shield, Trash2 } from "lucide-react"
 import { format, parseISO } from "date-fns"
 import { it } from "date-fns/locale"
 
@@ -27,9 +34,13 @@ export default function Admin() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState(null)
   const [replyText, setReplyText] = useState("")
   const [sendingReply, setSendingReply] = useState(false)
+  const [deletingAdminMessageId, setDeletingAdminMessageId] = useState(null)
   const [notificationPermission, setNotificationPermission] = useState(() =>
     typeof Notification === "undefined" ? "unsupported" : Notification.permission
   )
+  const [pushSupported, setPushSupported] = useState(false)
+  const [pushEnabled, setPushEnabled] = useState(false)
+  const [pushBusy, setPushBusy] = useState(false)
   const lastSeenUserMessageIdRef = useRef(null)
 
   useEffect(() => {
@@ -59,6 +70,17 @@ export default function Admin() {
       document.removeEventListener("visibilitychange", onVisibilityOrFocus)
       window.removeEventListener("focus", onVisibilityOrFocus)
     }
+  }, [])
+
+  useEffect(() => {
+    const supported = typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window
+    setPushSupported(supported)
+    if (!supported) return
+    if (!isAdminLoggedIn()) return
+    navigator.serviceWorker.ready
+      .then((reg) => reg.pushManager.getSubscription())
+      .then((sub) => setPushEnabled(Boolean(sub)))
+      .catch(() => {})
   }, [])
 
   async function refreshMessages({ showLoading, notify }) {
@@ -126,6 +148,72 @@ export default function Admin() {
     }
     const result = await Notification.requestPermission()
     setNotificationPermission(result)
+  }
+
+  function base64ToUint8Array(base64String) {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4)
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/")
+    const rawData = window.atob(base64)
+    const outputArray = new Uint8Array(rawData.length)
+    for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i)
+    return outputArray
+  }
+
+  async function enablePush() {
+    if (!pushSupported) return
+    setPushBusy(true)
+    try {
+      if (typeof Notification === "undefined") return
+      if (Notification.permission !== "granted") {
+        const perm = await Notification.requestPermission()
+        setNotificationPermission(perm)
+        if (perm !== "granted") return
+      }
+      const data = await cloudGetPushPublicKey()
+      const publicKey = data?.publicKey ? String(data.publicKey) : ""
+      if (!publicKey) throw new Error("Chiave notifiche mancante sul server.")
+      const reg = await navigator.serviceWorker.ready
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: base64ToUint8Array(publicKey),
+      })
+      await cloudSubscribeAdminPush({ subscription: sub })
+      setPushEnabled(true)
+    } catch (e) {
+      window.alert(e?.message || "Non sono riuscito ad attivare le notifiche.")
+    }
+    setPushBusy(false)
+  }
+
+  async function disablePush() {
+    if (!pushSupported) return
+    setPushBusy(true)
+    try {
+      const reg = await navigator.serviceWorker.ready
+      const sub = await reg.pushManager.getSubscription()
+      if (sub?.endpoint) {
+        await cloudUnsubscribeAdminPush({ endpoint: sub.endpoint })
+        await sub.unsubscribe()
+      }
+      setPushEnabled(false)
+    } catch (e) {
+      window.alert(e?.message || "Non sono riuscito a disattivare le notifiche.")
+    }
+    setPushBusy(false)
+  }
+
+  async function handleDeleteAdminMessage(id) {
+    if (!id) return
+    const ok = window.confirm("Vuoi eliminare questo messaggio? Verrà rimosso anche dalla sua app.")
+    if (!ok) return
+    setDeletingAdminMessageId(id)
+    try {
+      await cloudDeleteAdminMessage({ id })
+      await refreshMessages({ showLoading: false, notify: false })
+    } catch (e) {
+      window.alert(e?.message || "Non sono riuscito a eliminare il messaggio.")
+    }
+    setDeletingAdminMessageId(null)
   }
 
   function formatDate(dateStr) {
@@ -237,6 +325,29 @@ export default function Admin() {
             </button>
           )}
         </div>
+
+        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow border border-pink-100 p-4 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-body text-pink-700 text-sm font-semibold">Notifiche push (anche da chiusa)</p>
+            {!pushSupported ? (
+              <p className="font-body text-pink-400 text-xs">Non supportate qui.</p>
+            ) : pushEnabled ? (
+              <p className="font-body text-pink-400 text-xs">Attive: ti avviso anche quando l’app è chiusa.</p>
+            ) : (
+              <p className="font-body text-pink-400 text-xs">Attivale per ricevere avvisi anche quando l’app è chiusa.</p>
+            )}
+          </div>
+          {pushSupported && (
+            <button
+              onClick={pushEnabled ? disablePush : enablePush}
+              disabled={pushBusy}
+              className="flex-shrink-0 px-3 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 text-white font-body text-xs font-semibold shadow hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              type="button"
+            >
+              {pushEnabled ? "Disattiva" : "Attiva"}
+            </button>
+          )}
+        </div>
         {latestMood && (
           <div className="bg-gradient-to-r from-pink-500 to-rose-500 rounded-3xl shadow-xl p-5 text-white">
             <p className="font-body text-pink-100 text-xs mb-1 uppercase tracking-wider">
@@ -317,8 +428,21 @@ export default function Admin() {
             <div className="divide-y divide-pink-50">
               {adminMessages.map((m) => (
                 <div key={m.id} className="px-5 py-4">
-                  <p className="font-body text-pink-700 text-sm leading-relaxed whitespace-pre-wrap">{m.message}</p>
-                  <p className="font-body text-pink-300 text-xs mt-1">{formatDate(m.sent_at)}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-body text-pink-700 text-sm leading-relaxed whitespace-pre-wrap">{m.message}</p>
+                      <p className="font-body text-pink-300 text-xs mt-1">{formatDate(m.sent_at)}</p>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteAdminMessage(m.id)}
+                      disabled={deletingAdminMessageId === m.id}
+                      className="flex-shrink-0 p-2 rounded-xl bg-white/80 border border-pink-100 text-rose-500 hover:bg-rose-50 transition-all shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                      type="button"
+                      title="Elimina"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

@@ -10,7 +10,9 @@ export const tokenStorage = {
     }
   },
   setUserToken(token) {
-    localStorage.setItem(USER_TOKEN_KEY, token)
+    try {
+      localStorage.setItem(USER_TOKEN_KEY, token)
+    } catch {}
   },
   clearUserToken() {
     localStorage.removeItem(USER_TOKEN_KEY)
@@ -23,7 +25,9 @@ export const tokenStorage = {
     }
   },
   setAdminToken(token) {
-    localStorage.setItem(ADMIN_TOKEN_KEY, token)
+    try {
+      localStorage.setItem(ADMIN_TOKEN_KEY, token)
+    } catch {}
   },
   clearAdminToken() {
     localStorage.removeItem(ADMIN_TOKEN_KEY)
@@ -88,6 +92,11 @@ export async function cloudSendAdminReply({ message }) {
   return apiFetch("/api/admin/reply", { method: "POST", token, body: { message } })
 }
 
+export async function cloudDeleteAdminMessage({ id }) {
+  const token = tokenStorage.getAdminToken()
+  return apiFetch("/api/admin/reply", { method: "DELETE", token, body: { id } })
+}
+
 export async function cloudGetRelationshipDate() {
   const token = tokenStorage.getUserToken()
   return apiFetch("/api/relationship-date", { token })
@@ -101,4 +110,18 @@ export async function cloudSetRelationshipDate({ start_date }) {
 export async function cloudClearRelationshipDate() {
   const token = tokenStorage.getUserToken()
   return apiFetch("/api/relationship-date", { method: "DELETE", token })
+}
+
+export async function cloudGetPushPublicKey() {
+  return apiFetch("/api/push")
+}
+
+export async function cloudSubscribeAdminPush({ subscription }) {
+  const token = tokenStorage.getAdminToken()
+  return apiFetch("/api/push", { method: "POST", token, body: { action: "subscribe", subscription } })
+}
+
+export async function cloudUnsubscribeAdminPush({ endpoint }) {
+  const token = tokenStorage.getAdminToken()
+  return apiFetch("/api/push", { method: "POST", token, body: { action: "unsubscribe", endpoint } })
 }
