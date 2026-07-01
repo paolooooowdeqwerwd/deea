@@ -62,6 +62,17 @@ const initDb = async () => {
         );
       `)
       await p.query(`
+        CREATE TABLE IF NOT EXISTS deea_calendar_events (
+          date date PRIMARY KEY,
+          love_count int NOT NULL DEFAULT 0,
+          prelim_him int NOT NULL DEFAULT 0,
+          prelim_her int NOT NULL DEFAULT 0,
+          came_him int NOT NULL DEFAULT 0,
+          came_her int NOT NULL DEFAULT 0,
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+      `)
+      await p.query(`
         INSERT INTO deea_settings (id)
         VALUES (1)
         ON CONFLICT (id) DO NOTHING;

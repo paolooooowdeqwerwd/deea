@@ -125,3 +125,24 @@ export async function cloudUnsubscribeAdminPush({ endpoint }) {
   const token = tokenStorage.getAdminToken()
   return apiFetch("/api/push", { method: "POST", token, body: { action: "unsubscribe", endpoint } })
 }
+
+export async function cloudSubscribeUserPush({ subscription }) {
+  const token = tokenStorage.getUserToken()
+  return apiFetch("/api/push", { method: "POST", token, body: { action: "subscribe", subscription } })
+}
+
+export async function cloudUnsubscribeUserPush({ endpoint }) {
+  const token = tokenStorage.getUserToken()
+  return apiFetch("/api/push", { method: "POST", token, body: { action: "unsubscribe", endpoint } })
+}
+
+export async function cloudGetCalendarMonth({ month }) {
+  const token = tokenStorage.getUserToken()
+  const qs = month ? `?month=${encodeURIComponent(month)}` : ""
+  return apiFetch(`/api/calendar${qs}`, { token })
+}
+
+export async function cloudIncrementCalendar({ date, type }) {
+  const token = tokenStorage.getUserToken()
+  return apiFetch("/api/calendar", { method: "POST", token, body: { date, type } })
+}

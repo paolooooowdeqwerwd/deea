@@ -2,14 +2,14 @@ import { readBody, sendError, sendJson, getBearerToken } from "./_util.js"
 import { verifyToken } from "./_auth.js"
 import { getPool, initDb } from "./_db.js"
 
-const requireAdmin = (req, res) => {
+const requireAuth = (req, res, allowedRoles) => {
   const token = getBearerToken(req)
   const payload = verifyToken(token)
   if (!payload) {
     sendError(res, 401, "Unauthorized")
     return null
   }
-  if (payload.role !== "admin") {
+  if (allowedRoles && !allowedRoles.includes(payload.role)) {
     sendError(res, 403, "Forbidden")
     return null
   }
@@ -32,7 +32,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === "POST") {
-      const auth = requireAdmin(req, res)
+      const auth = requireAuth(req, res, ["admin", "user"])
       if (!auth) return
 
       const body = await readBody(req)
@@ -47,10 +47,10 @@ export default async function handler(req, res) {
 
         await pool.query(
           `INSERT INTO deea_push_subscriptions (endpoint, role, subscription)
-           VALUES ($1, 'admin', $2)
+           VALUES ($1, $2, $3)
            ON CONFLICT (endpoint) DO UPDATE
-           SET role = 'admin', subscription = $2, created_at = now()`,
-          [endpoint, subscription]
+           SET role = $2, subscription = $3, created_at = now()`,
+          [endpoint, auth.role, subscription]
         )
         return sendJson(res, 200, { ok: true })
       }
@@ -58,7 +58,7 @@ export default async function handler(req, res) {
       if (action === "unsubscribe") {
         const endpoint = body.endpoint ? String(body.endpoint) : ""
         if (!endpoint) return sendError(res, 400, "Missing endpoint")
-        await pool.query(`DELETE FROM deea_push_subscriptions WHERE endpoint = $1 AND role = 'admin'`, [endpoint])
+        await pool.query(`DELETE FROM deea_push_subscriptions WHERE endpoint = $1 AND role = $2`, [endpoint, auth.role])
         return sendJson(res, 200, { ok: true })
       }
 

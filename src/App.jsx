@@ -8,6 +8,7 @@ import AppLayout from './components/AppLayout';
 import Home from './pages/home';
 import Login from './pages/login';
 import Anniversary from './pages/Anniversary';
+import CalendarPage from './pages/Calendar';
 import Mood from './pages/mood';
 import AdminLogin from './pages/adminLogin';
 import Admin from './pages/admin';
@@ -22,6 +23,7 @@ function App() {
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
             <Route path="/anniversary" element={<Anniversary />} />
+            <Route path="/calendar" element={<CalendarPage />} />
             <Route path="/mood" element={<Mood />} />
             <Route path="/admin-login" element={<AdminLogin />} />
             <Route path="/admin" element={<Admin />} />

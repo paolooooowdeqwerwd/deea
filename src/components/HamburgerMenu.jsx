@@ -32,9 +32,11 @@ export default function HamburgerMenu() {
   }
 
   const isOnAnniversary = location.pathname === "/anniversary";
+  const isOnCalendar = location.pathname === "/calendar";
   const isOnMood = location.pathname === "/mood";
-  const shouldShowHomeSwap = isOnAnniversary || isOnMood;
+  const shouldShowHomeSwap = isOnAnniversary || isOnMood || isOnCalendar;
   const shouldShowAnniversary = !isOnAnniversary;
+  const shouldShowCalendar = !isOnCalendar;
   const shouldShowMood = !isOnMood;
 
   return (
@@ -86,6 +88,16 @@ export default function HamburgerMenu() {
                   >
                     <Calendar size={16} className="text-pink-400" />
                     <span>Da quanto stiamo assieme</span>
+                  </Link>
+                )}
+                {shouldShowCalendar && (
+                  <Link
+                    to="/calendar"
+                    onClick={() => setOpen(false)}
+                    className="flex items-center gap-3 px-4 py-3 text-pink-700 hover:bg-pink-50 transition-colors font-body text-sm"
+                  >
+                    <Calendar size={16} className="text-pink-400" />
+                    <span>Calendario 😈</span>
                   </Link>
                 )}
                 {shouldShowMood && (

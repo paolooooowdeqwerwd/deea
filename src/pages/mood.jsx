@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { cloudListMessages, cloudSendUserMessage } from "@/api/cloudClient"
+import { cloudGetPushPublicKey, cloudListMessages, cloudSendUserMessage, cloudSubscribeUserPush, cloudUnsubscribeUserPush } from "@/api/cloudClient"
 import { isLoggedIn } from "@/lib/auth"
 import { Heart, Send } from "lucide-react"
 
@@ -25,9 +25,23 @@ export default function Mood() {
   const [syncError, setSyncError] = useState(null)
   const [adminMessages, setAdminMessages] = useState([])
   const [loadingAdminMessages, setLoadingAdminMessages] = useState(true)
+  const [pushSupported, setPushSupported] = useState(false)
+  const [pushEnabled, setPushEnabled] = useState(false)
+  const [pushBusy, setPushBusy] = useState(false)
 
   useEffect(() => {
     if (!isLoggedIn()) navigate("/login")
+  }, [])
+
+  useEffect(() => {
+    const supported = typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window
+    setPushSupported(supported)
+    if (!supported) return
+    if (!isLoggedIn()) return
+    navigator.serviceWorker.ready
+      .then((reg) => reg.pushManager.getSubscription())
+      .then((sub) => setPushEnabled(Boolean(sub)))
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -94,6 +108,57 @@ export default function Mood() {
     setSending(false)
   }
 
+  function base64ToUint8Array(base64String) {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4)
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/")
+    const rawData = window.atob(base64)
+    const outputArray = new Uint8Array(rawData.length)
+    for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i)
+    return outputArray
+  }
+
+  async function enablePush() {
+    if (!pushSupported) return
+    setPushBusy(true)
+    try {
+      if (typeof Notification === "undefined") return
+      if (Notification.permission !== "granted") {
+        const perm = await Notification.requestPermission()
+        if (perm !== "granted") return
+      }
+      const data = await cloudGetPushPublicKey()
+      const publicKey = data?.publicKey ? String(data.publicKey) : ""
+      if (!publicKey) throw new Error("Chiave notifiche mancante sul server.")
+      const reg = await navigator.serviceWorker.ready
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: base64ToUint8Array(publicKey),
+      })
+      await cloudSubscribeUserPush({ subscription: sub })
+      setPushEnabled(true)
+    } catch (e) {
+      window.alert(e?.message || "Non sono riuscito ad attivare le notifiche.")
+    }
+    setPushBusy(false)
+  }
+
+  async function disablePush() {
+    if (!pushSupported) return
+    setPushBusy(true)
+    try {
+      const reg = await navigator.serviceWorker.ready
+      const sub = await reg.pushManager.getSubscription()
+      if (sub?.endpoint) {
+        await cloudUnsubscribeUserPush({ endpoint: sub.endpoint })
+        await sub.unsubscribe()
+      }
+      setPushEnabled(false)
+    } catch (e) {
+      window.alert(e?.message || "Non sono riuscito a disattivare le notifiche.")
+    }
+    setPushBusy(false)
+  }
+
 
   return (
     <div className="flex flex-col items-center px-6 pb-12">
@@ -110,6 +175,31 @@ export default function Mood() {
             <p className="font-body text-rose-500 text-xs">{syncError}</p>
           </div>
         ) : null}
+      </div>
+
+      <div className="w-full max-w-sm mb-6">
+        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow border border-pink-100 p-4 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-body text-pink-700 text-sm font-semibold">Notifiche</p>
+            {!pushSupported ? (
+              <p className="font-body text-pink-400 text-xs">Non supportate qui.</p>
+            ) : pushEnabled ? (
+              <p className="font-body text-pink-400 text-xs">Attive: ti avviso quando lui ti risponde.</p>
+            ) : (
+              <p className="font-body text-pink-400 text-xs">Attivale per ricevere avvisi quando lui ti risponde.</p>
+            )}
+          </div>
+          {pushSupported && (
+            <button
+              onClick={pushEnabled ? disablePush : enablePush}
+              disabled={pushBusy}
+              className="flex-shrink-0 px-3 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 text-white font-body text-xs font-semibold shadow hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              type="button"
+            >
+              {pushEnabled ? "Disattiva" : "Attiva"}
+            </button>
+          )}
+        </div>
       </div>
 
       {sent ? (
