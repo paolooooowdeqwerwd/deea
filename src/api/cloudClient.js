@@ -144,5 +144,15 @@ export async function cloudGetCalendarMonth({ month }) {
 
 export async function cloudIncrementCalendar({ date, type }) {
   const token = tokenStorage.getUserToken()
-  return apiFetch("/api/calendar", { method: "POST", token, body: { date, type } })
+  return apiFetch("/api/calendar", { method: "POST", token, body: { date, type, action: "inc" } })
+}
+
+export async function cloudDecrementCalendar({ date, type }) {
+  const token = tokenStorage.getUserToken()
+  return apiFetch("/api/calendar", { method: "POST", token, body: { date, type, action: "dec" } })
+}
+
+export async function cloudClearCalendarDay({ date }) {
+  const token = tokenStorage.getUserToken()
+  return apiFetch("/api/calendar", { method: "POST", token, body: { date, action: "clearDay" } })
 }

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { cloudGetCalendarMonth, cloudIncrementCalendar } from "@/api/cloudClient"
+import { cloudClearCalendarDay, cloudDecrementCalendar, cloudGetCalendarMonth, cloudIncrementCalendar } from "@/api/cloudClient"
 import { isLoggedIn } from "@/lib/auth"
 import { addDays, endOfMonth, endOfWeek, format, isSameDay, isSameMonth, startOfMonth, startOfWeek } from "date-fns"
 import { it } from "date-fns/locale"
@@ -114,7 +114,18 @@ export default function CalendarPage() {
       const res = await cloudIncrementCalendar({ date, type })
       const nextEvent = res?.event
       if (nextEvent?.date) {
-        setEventsByDate((prev) => ({ ...prev, [String(nextEvent.date)]: nextEvent }))
+        const sum =
+          Number(nextEvent.love_count || 0) +
+          Number(nextEvent.prelim_him || 0) +
+          Number(nextEvent.prelim_her || 0) +
+          Number(nextEvent.came_him || 0) +
+          Number(nextEvent.came_her || 0)
+        setEventsByDate((prev) => {
+          const next = { ...prev }
+          if (sum === 0) delete next[String(nextEvent.date)]
+          else next[String(nextEvent.date)] = nextEvent
+          return next
+        })
       }
       setTotals((prev) => {
         const next = { ...prev }
@@ -127,6 +138,82 @@ export default function CalendarPage() {
       })
     } catch (e) {
       window.alert(e?.message || "Non sono riuscito a salvare.")
+    }
+    setSaving(false)
+  }
+
+  async function decrement(type) {
+    const current = eventsByDate[selectedIso]
+    if (!current) return
+    const currentVal =
+      type === "love"
+        ? Number(current.love_count || 0)
+        : type === "prelim_him"
+          ? Number(current.prelim_him || 0)
+          : type === "prelim_her"
+            ? Number(current.prelim_her || 0)
+            : type === "came_him"
+              ? Number(current.came_him || 0)
+              : Number(current.came_her || 0)
+    if (currentVal <= 0) return
+
+    setSaving(true)
+    try {
+      const date = selectedIso
+      const res = await cloudDecrementCalendar({ date, type })
+      const nextEvent = res?.event
+      if (nextEvent?.date) {
+        const sum =
+          Number(nextEvent.love_count || 0) +
+          Number(nextEvent.prelim_him || 0) +
+          Number(nextEvent.prelim_her || 0) +
+          Number(nextEvent.came_him || 0) +
+          Number(nextEvent.came_her || 0)
+        setEventsByDate((prev) => {
+          const next = { ...prev }
+          if (sum === 0) delete next[String(nextEvent.date)]
+          else next[String(nextEvent.date)] = nextEvent
+          return next
+        })
+      }
+      setTotals((prev) => {
+        const next = { ...prev }
+        if (type === "love") next.love_count = Math.max(0, Number(next.love_count || 0) - 1)
+        if (type === "prelim_him") next.prelim_him = Math.max(0, Number(next.prelim_him || 0) - 1)
+        if (type === "prelim_her") next.prelim_her = Math.max(0, Number(next.prelim_her || 0) - 1)
+        if (type === "came_him") next.came_him = Math.max(0, Number(next.came_him || 0) - 1)
+        if (type === "came_her") next.came_her = Math.max(0, Number(next.came_her || 0) - 1)
+        return next
+      })
+    } catch (e) {
+      window.alert(e?.message || "Non sono riuscito a rimuovere.")
+    }
+    setSaving(false)
+  }
+
+  async function clearSelectedDay() {
+    const current = eventsByDate[selectedIso]
+    if (!current) return
+    const ok = window.confirm("Vuoi rimuovere tutto da questo giorno?")
+    if (!ok) return
+
+    setSaving(true)
+    try {
+      await cloudClearCalendarDay({ date: selectedIso })
+      setEventsByDate((prev) => {
+        const next = { ...prev }
+        delete next[selectedIso]
+        return next
+      })
+      setTotals((prev) => ({
+        love_count: Math.max(0, Number(prev.love_count || 0) - Number(current.love_count || 0)),
+        prelim_him: Math.max(0, Number(prev.prelim_him || 0) - Number(current.prelim_him || 0)),
+        prelim_her: Math.max(0, Number(prev.prelim_her || 0) - Number(current.prelim_her || 0)),
+        came_him: Math.max(0, Number(prev.came_him || 0) - Number(current.came_him || 0)),
+        came_her: Math.max(0, Number(prev.came_her || 0) - Number(current.came_her || 0)),
+      }))
+    } catch (e) {
+      window.alert(e?.message || "Non sono riuscito a rimuovere.")
     }
     setSaving(false)
   }
@@ -187,6 +274,15 @@ export default function CalendarPage() {
             >
               L’amore ❤️
             </button>
+
+            <button
+              type="button"
+              disabled={saving || !selectedEvent}
+              onClick={() => decrement("love")}
+              className="col-span-5 px-4 py-2 rounded-2xl bg-white/80 border border-rose-200 text-rose-500 font-body text-xs font-semibold shadow-sm hover:bg-rose-50 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Rimuovi l’amore (−1)
+            </button>
             <button
               type="button"
               disabled={saving}
@@ -226,6 +322,47 @@ export default function CalendarPage() {
               className="px-3 py-3 rounded-2xl bg-white/80 border border-pink-100 text-pink-600 font-body text-[11px] font-semibold shadow-sm hover:bg-pink-50 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             >
               Oggi
+            </button>
+
+            <button
+              type="button"
+              disabled={saving || !selectedEvent}
+              onClick={() => decrement("prelim_him")}
+              className="px-3 py-3 rounded-2xl bg-white/80 border border-rose-200 text-rose-500 font-body text-[11px] font-semibold shadow-sm hover:bg-rose-50 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Prelim. (lui) −
+            </button>
+            <button
+              type="button"
+              disabled={saving || !selectedEvent}
+              onClick={() => decrement("prelim_her")}
+              className="px-3 py-3 rounded-2xl bg-white/80 border border-rose-200 text-rose-500 font-body text-[11px] font-semibold shadow-sm hover:bg-rose-50 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Prelim. (lei) −
+            </button>
+            <button
+              type="button"
+              disabled={saving || !selectedEvent}
+              onClick={() => decrement("came_him")}
+              className="px-3 py-3 rounded-2xl bg-white/80 border border-rose-200 text-rose-500 font-body text-[11px] font-semibold shadow-sm hover:bg-rose-50 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Venuto (lui) −
+            </button>
+            <button
+              type="button"
+              disabled={saving || !selectedEvent}
+              onClick={() => decrement("came_her")}
+              className="px-3 py-3 rounded-2xl bg-white/80 border border-rose-200 text-rose-500 font-body text-[11px] font-semibold shadow-sm hover:bg-rose-50 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Venuta (lei) −
+            </button>
+            <button
+              type="button"
+              disabled={saving || !selectedEvent}
+              onClick={clearSelectedDay}
+              className="px-3 py-3 rounded-2xl bg-white/80 border border-rose-200 text-rose-500 font-body text-[11px] font-semibold shadow-sm hover:bg-rose-50 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Pulisci
             </button>
           </div>
         </div>

@@ -93,9 +93,22 @@ export default async function handler(req, res) {
       if (!body || body.__invalid_json) return sendError(res, 400, "Invalid JSON body")
 
       const date = body.date ? String(body.date) : ""
-      const type = body.type ? String(body.type) : ""
+      const action = body.action ? String(body.action) : "inc"
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return sendError(res, 400, "Invalid date")
 
+      if (action !== "inc" && action !== "dec" && action !== "clearDay") return sendError(res, 400, "Invalid action")
+
+      if (action === "clearDay") {
+        const cleared = await pool.query(
+          `DELETE FROM deea_calendar_events
+           WHERE date = $1::date
+           RETURNING date`,
+          [date]
+        )
+        return sendJson(res, 200, { ok: true, cleared: Boolean(cleared.rowCount), date })
+      }
+
+      const type = body.type ? String(body.type) : ""
       const allowed = new Set(["love", "prelim_him", "prelim_her", "came_him", "came_her"])
       if (!allowed.has(type)) return sendError(res, 400, "Invalid type")
 
@@ -110,16 +123,31 @@ export default async function handler(req, res) {
                 ? "came_him"
                 : "came_her"
 
+      const delta = action === "dec" ? -1 : 1
       const upsert = await pool.query(
         `INSERT INTO deea_calendar_events (date, ${column})
-         VALUES ($1::date, 1)
+         VALUES ($1::date, GREATEST(0, $2))
          ON CONFLICT (date) DO UPDATE
-         SET ${column} = deea_calendar_events.${column} + 1,
+         SET ${column} = GREATEST(0, deea_calendar_events.${column} + $2),
              updated_at = now()
          RETURNING date, love_count, prelim_him, prelim_her, came_him, came_her, updated_at`,
-        [date]
+        [date, delta]
       )
+
       const row = upsert.rows?.[0]
+
+      const counts = [
+        Number(row?.love_count || 0),
+        Number(row?.prelim_him || 0),
+        Number(row?.prelim_her || 0),
+        Number(row?.came_him || 0),
+        Number(row?.came_her || 0),
+      ]
+      const total = counts.reduce((a, b) => a + b, 0)
+      if (total === 0) {
+        await pool.query(`DELETE FROM deea_calendar_events WHERE date = $1::date`, [date])
+      }
+
       return sendJson(res, 200, {
         event: {
           date: toIsoDate(row?.date),
